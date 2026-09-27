@@ -1,0 +1,162 @@
+name: terraform
+
+on:
+  pull_request:
+    paths:
+      - "stack/**"
+      - "modules/**"
+      - "envs/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "stack/**"
+      - "modules/**"
+      - "envs/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to apply
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for Azure
+  pull-requests: write # plan comments
+
+env:
+  TF_VERSION: "1.15.6"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive
+      - run: terraform -chdir=stack init -backend=false
+      - run: terraform -chdir=stack validate
+
+  plan:
+    if: github.event_name == 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Init
+        run: terraform -chdir=stack init -backend-config=../envs/${{ matrix.environment }}.backend.hcl
+
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          terraform -chdir=stack plan -lock=false -no-color \
+            -var-file=../envs/${{ matrix.environment }}.tfvars \
+            -out=tfplan > plan.log 2>&1
+          code=$?
+          set -e
+          cat plan.log
+          if [ $code -eq 0 ]; then
+            terraform -chdir=stack show -no-color tfplan > plan.txt
+          else
+            cp plan.log plan.txt
+          fi
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Comment plan
+        uses: actions/github-script@v7
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          EXITCODE: ${{ steps.plan.outputs.exitcode }}
+        with:
+          script: |
+            const fs = require("fs");
+            const env = process.env.ENVIRONMENT;
+            const ok = process.env.EXITCODE === "0";
+            const marker = `<!-- terraform-plan:${env} -->`;
+            let plan = fs.readFileSync("plan.txt", "utf8");
+            if (plan.length > 60000) plan = "…(truncated)\n" + plan.slice(-60000);
+            const summary = ok
+              ? (plan.match(/Plan: .*|No changes\..*/)?.[0] ?? "Plan ready")
+              : "Plan failed";
+            const body = [
+              marker,
+              `### Terraform plan — \`${env}\` ${ok ? "✅" : "❌"}`,
+              `**${summary}**`,
+              "<details><summary>Show plan</summary>",
+              "",
+              "```terraform",
+              plan,
+              "```",
+              "</details>",
+            ].join("\n");
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find((c) => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail if plan failed
+        if: steps.plan.outputs.exitcode != '0'
+        run: exit 1
+
+  apply:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      # Pushes to main apply dev; prod only through a manual run.
+      ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'dev' }}
+    concurrency:
+      group: terraform-apply-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'dev' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Init
+        run: terraform -chdir=stack init -backend-config=../envs/${ENVIRONMENT}.backend.hcl
+
+      - name: Plan
+        run: terraform -chdir=stack plan -no-color -var-file=../envs/${ENVIRONMENT}.tfvars -out=tfplan
+
+      - name: Apply
+        run: terraform -chdir=stack apply -no-color tfplan
+
+      - name: Outputs
+        run: |
+          {
+            echo "### Applied \`${ENVIRONMENT}\`"
+            echo '```'
+            terraform -chdir=stack output -no-color
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
