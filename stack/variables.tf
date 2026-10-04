@@ -72,6 +72,18 @@ variable "star_catch" {
   type = object({
     image             = optional(string, "ghcr.io/kiasm-tech/star-catch:main")
     registry_username = string
+    github_app_id     = string
+    # owner/name, comma-separated: the repos the worker snapshots.
+    repos = optional(string, "")
+    # null = ai_default_model.
+    classifier_model = optional(string)
+    # e.g. { STAR_CATCH_MOCK_GITHUB = "true" } for a smoke test with recorded PRs.
+    worker_env = optional(map(string), {})
   })
   default = null
+
+  validation {
+    condition     = try(var.star_catch.classifier_model, null) == null || contains(keys(var.ai_deployments), try(var.star_catch.classifier_model, ""))
+    error_message = "star_catch.classifier_model must be one of the ai_deployments."
+  }
 }
