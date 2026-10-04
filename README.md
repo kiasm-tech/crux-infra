@@ -5,7 +5,7 @@ Terraform for Crux on Azure: one shared stack, applied per environment (`dev`, `
 ```txt
 bootstrap/        run once by hand: state storage, env resource groups, GitHub OIDC identity, budget
 stack/            the environment itself (root module)
-modules/          keyvault, storage, postgres, container_env, web_app
+modules/          keyvault, storage, postgres, container_env, web_app, ai
 envs/             <env>.tfvars + <env>.backend.hcl
 .github/workflows/terraform.yml   fmt/validate → plan on PR (comment) → apply dev on main, prod on manual run
 ```
@@ -15,9 +15,13 @@ Each environment contains:
 - Container Apps environment (Consumption, scale to zero) with a capped Log Analytics workspace (0.5 GB/day, 30 days)
 - The `ca-crux-web-<env>` Container App with a placeholder image
 - PostgreSQL Flexible Server B1ms with a `crux` database; its URL is stored in Key Vault as `database-url`
+- An AI Services account in Sweden Central with the OpenAI deployments listed in `ai_deployments` (`gpt-5-mini`, `gpt-5.3-codex`) and Speech; its key is stored in Key Vault as `ai-services-key`
 - Blob storage with `audio` and `exports` containers, keyless, moving blobs to Cool after 30 days
 - Key Vault (RBAC)
 - A managed identity for the app
+
+The web app gets `DATABASE_URL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `AZURE_SPEECH_KEY` and
+`AZURE_SPEECH_REGION` without any tfvars.
 
 ---
 
@@ -40,7 +44,8 @@ CI is scoped to resource groups, so it can't register providers itself.
 
 ```sh
 for ns in Microsoft.App Microsoft.OperationalInsights Microsoft.DBforPostgreSQL \
-          Microsoft.KeyVault Microsoft.Storage Microsoft.ManagedIdentity Microsoft.Consumption; do
+          Microsoft.KeyVault Microsoft.Storage Microsoft.ManagedIdentity Microsoft.Consumption \
+          Microsoft.CognitiveServices; do
   az provider register --namespace "$ns"
 done
 az provider list --query "[?namespace=='Microsoft.App'].registrationState" -o tsv   # wait for "Registered"
@@ -156,14 +161,14 @@ terraform -chdir=stack plan -var-file=../envs/dev.tfvars
 **Add an app secret.** Values never go through Terraform:
 
 ```sh
-az keyvault secret set --vault-name <kv> --name openai-api-key --value "..."
+az keyvault secret set --vault-name <kv> --name resend-api-key --value "..."
 ```
 
 Then reference it in `envs/<env>.tfvars` and merge:
 
 ```hcl
 web = {
-  secrets = { OPENAI_API_KEY = "openai-api-key" }
+  secrets = { RESEND_API_KEY = "resend-api-key" }
 }
 ```
 
@@ -182,6 +187,17 @@ web = {
 Terraform ignores the image after creation. The app repo's CI deploys new images with
 `az containerapp update -n ca-crux-web-<env> -g rg-crux-<env> --image ghcr.io/...:<sha>`.
 
+**Use the models from your laptop.** The apps send the deployment name as the model:
+
+```sh
+export OPENAI_BASE_URL=$(terraform -chdir=stack output -raw openai_base_url)
+export OPENAI_API_KEY=$(az keyvault secret show --vault-name <kv> --name ai-services-key --query value -o tsv)
+export AZURE_SPEECH_KEY=$OPENAI_API_KEY AZURE_SPEECH_REGION=$(terraform -chdir=stack output -raw ai_location)
+```
+
+**Add a model:** add an entry to `ai_deployments` in `envs/<env>.tfvars` (the default map is
+replaced, so list every model you keep).
+
 **Reach Postgres from your laptop:** add your IP to `postgres_allowed_ips` in the tfvars, then:
 
 ```sh
@@ -199,6 +215,7 @@ Azure restarts it automatically after 7 days.
 | Container App (scale to zero) | 0 |
 | Log Analytics (capped at 0.5 GB/day) | 0–5 |
 | Key Vault, Blob | < 1 |
+| AI Services (pay per token) | 0 |
 
 ## Not here yet
 

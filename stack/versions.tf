@@ -21,7 +21,12 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  features {
+    # A deleted account otherwise keeps its name reserved for 48 hours.
+    cognitive_account {
+      purge_soft_delete_on_destroy = true
+    }
+  }
   # CI can't register providers — it only owns the env resource group.
   resource_provider_registrations = "none"
   storage_use_azuread             = true

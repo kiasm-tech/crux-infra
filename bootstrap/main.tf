@@ -78,8 +78,8 @@ resource "azuread_service_principal" "github" {
 
 resource "azuread_application_federated_identity_credential" "github" {
   for_each = {
-    pull-request = "repo:${var.github_repository}:pull_request"
-    main         = "repo:${var.github_repository}:ref:refs/heads/main"
+    pull-request = "repo:${var.github_oidc_subject_repo}:pull_request"
+    main         = "repo:${var.github_oidc_subject_repo}:ref:refs/heads/main"
   }
 
   application_id = azuread_application.github.id

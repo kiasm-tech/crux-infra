@@ -7,6 +7,26 @@ variable "location" {
   default = "northeurope"
 }
 
+variable "ai_location" {
+  description = "Region of the AI Services account; new models reach Sweden Central first."
+  type        = string
+  default     = "swedencentral"
+}
+
+variable "ai_deployments" {
+  description = "Deployment name (= the model apps ask for) => model."
+  type = map(object({
+    model    = string
+    version  = optional(string)
+    sku      = optional(string, "GlobalStandard")
+    capacity = optional(number, 50)
+  }))
+  default = {
+    "gpt-5-mini"    = { model = "gpt-5-mini" }    # Star Catch classifier
+    "gpt-5.3-codex" = { model = "gpt-5.3-codex" } # Crux generation
+  }
+}
+
 variable "postgres_sku" {
   type    = string
   default = "B_Standard_B1ms"
