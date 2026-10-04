@@ -2,7 +2,7 @@
 
 Terraform for Crux on Azure: one shared stack, applied per environment (`dev`, `prod`).
 
-```
+```txt
 bootstrap/        run once by hand: state storage, env resource groups, GitHub OIDC identity, budget
 stack/            the environment itself (root module)
 modules/          keyvault, storage, postgres, container_env, web_app
@@ -11,6 +11,7 @@ envs/             <env>.tfvars + <env>.backend.hcl
 ```
 
 Each environment contains:
+
 - Container Apps environment (Consumption, scale to zero) with a capped Log Analytics workspace (0.5 GB/day, 30 days)
 - The `ca-crux-web-<env>` Container App with a placeholder image
 - PostgreSQL Flexible Server B1ms with a `crux` database; its URL is stored in Key Vault as `database-url`
@@ -45,6 +46,27 @@ done
 az provider list --query "[?namespace=='Microsoft.App'].registrationState" -o tsv   # wait for "Registered"
 ```
 
+If this fails with `AuthorizationFailed ... does not have authorization to perform action
+'Microsoft.App/register/action'`, your account has no RBAC role on the subscription. Entra
+roles such as Global Administrator don't count. To grant yourself Owner:
+
+1. If a user already has Owner on the subscription, skip to step 2. Otherwise, as a Global
+   Administrator, open **Entra ID → Properties → Access management for Azure resources**,
+   set it to **Yes**, save, then sign out and back in.
+2. Open **Subscriptions → \<subscription\> → Access control (IAM) → Add → Add role
+   assignment**. On **Privileged administrator roles**, pick **Owner** and add your user as
+   a member. For the delegation condition, choose "Allow user to assign all roles except
+   privileged administrator roles".
+3. If you used the toggle in step 1, set it back to **No**.
+4. Refresh the CLI token, then rerun the loop. A new role can take up to about 10 minutes
+   to take effect.
+
+   ```sh
+   az logout && az login
+   az account set --subscription "<subscription id>"
+   az role assignment list --assignee "<your upn>" --scope "/subscriptions/<subscription id>" -o table
+   ```
+
 ### 3. Run the bootstrap
 
 The bootstrap is also where the Entra app registration happens, so there's nothing to
@@ -59,7 +81,7 @@ terraform -chdir=bootstrap apply
 It creates:
 
 | Resource | Purpose |
-|---|---|
+| --- | --- |
 | `rg-crux-tfstate` + `stcruxtfstate<suffix>` / `tfstate` | Remote state: versioned, keyless, 30-day soft delete |
 | `rg-crux-dev`, `rg-crux-prod` | Environment resource groups (empty, free) |
 | App registration **`crux-infra-github`** + service principal | Identity used by GitHub Actions |
@@ -103,6 +125,7 @@ terraform -chdir=bootstrap output -raw github_variables | sh
 1. Make any small change on a branch (e.g. a comment in `envs/dev.tfvars`) and open a PR. The workflow posts a plan comment for `dev` and `prod`.
 2. Merge it. The `apply` job applies **dev** (Postgres takes ~5–10 min on the first run).
 3. Check the result:
+
    ```sh
    terraform -chdir=stack init -reconfigure -backend-config=../envs/dev.backend.hcl
    terraform -chdir=stack output
@@ -171,7 +194,7 @@ Azure restarts it automatically after 7 days.
 ## Cost (dev, idle)
 
 | Resource | ~€/month |
-|---|---|
+| --- | --- |
 | Postgres B1ms + 32 GB | 16–18 |
 | Container App (scale to zero) | 0 |
 | Log Analytics (capped at 0.5 GB/day) | 0–5 |
