@@ -49,6 +49,11 @@ resource "azurerm_cognitive_deployment" "this" {
     name     = each.value.sku
     capacity = each.value.capacity
   }
+
+  # Azure fills in and upgrades the version itself (version_upgrade_option).
+  lifecycle {
+    ignore_changes = [model[0].version]
+  }
 }
 
 output "name" { value = azurerm_cognitive_account.this.name }
