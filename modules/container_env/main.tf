@@ -30,13 +30,19 @@ resource "azurerm_log_analytics_workspace" "this" {
   tags                = var.tags
 }
 
-# Consumption-only (no workload profiles, no VNet): scale to zero, free grant.
+# Consumption only (no dedicated profiles, no VNet): scale to zero, free grant.
+# Azure now adds the Consumption profile itself; declared so plans don't try to remove it.
 resource "azurerm_container_app_environment" "this" {
   name                       = var.name
   resource_group_name        = var.resource_group_name
   location                   = var.location
   log_analytics_workspace_id = azurerm_log_analytics_workspace.this.id
   tags                       = var.tags
+
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
 }
 
 output "id" { value = azurerm_container_app_environment.this.id }

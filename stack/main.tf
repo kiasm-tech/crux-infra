@@ -126,6 +126,7 @@ module "web" {
     AZURE_CLIENT_ID       = azurerm_user_assigned_identity.web.client_id
     AZURE_STORAGE_ACCOUNT = module.storage.name
     OPENAI_BASE_URL       = module.ai.openai_base_url
+    OPENAI_MODEL          = var.ai_default_model
     AZURE_SPEECH_REGION   = module.ai.location
   }, var.web.env)
 

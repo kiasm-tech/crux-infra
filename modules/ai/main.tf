@@ -14,7 +14,7 @@ variable "deployments" {
   type = map(object({
     model    = string
     version  = optional(string)
-    sku      = optional(string, "GlobalStandard")
+    sku      = optional(string, "DataZoneStandard")
     capacity = optional(number, 50)
   }))
 }
