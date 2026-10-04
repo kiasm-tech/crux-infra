@@ -5,7 +5,7 @@ variable "subscription_id" {
 
 variable "location" {
   type    = string
-  default = "westeurope"
+  default = "northeurope"
 }
 
 variable "environments" {
@@ -28,4 +28,10 @@ variable "budget_amount" {
 
 variable "budget_contact_emails" {
   type = list(string)
+}
+
+variable "admin_group_object_id" {
+  description = "Entra group whose members get human access (tfstate, Key Vault secrets)."
+  type        = string
+  default     = "8bb1b7f9-1a8b-462b-8799-04f1efa369a6" # Founders
 }

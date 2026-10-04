@@ -143,21 +143,23 @@ resource "azurerm_role_assignment" "github_tfstate" {
 }
 
 # ---------------------------------------------------------------------------
-# You (whoever runs bootstrap): state access + setting secrets by hand
+# Admins (Entra group): state access + setting secrets by hand
 # ---------------------------------------------------------------------------
 
-resource "azurerm_role_assignment" "me_tfstate" {
+resource "azurerm_role_assignment" "admins_tfstate" {
   scope                = azurerm_storage_account.tfstate.id
   role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = data.azurerm_client_config.current.object_id
+  principal_id         = var.admin_group_object_id
+  principal_type       = "Group"
 }
 
-resource "azurerm_role_assignment" "me_kv_secrets" {
+resource "azurerm_role_assignment" "admins_kv_secrets" {
   for_each = azurerm_resource_group.env
 
   scope                = each.value.id
   role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = data.azurerm_client_config.current.object_id
+  principal_id         = var.admin_group_object_id
+  principal_type       = "Group"
 }
 
 # ---------------------------------------------------------------------------
