@@ -48,6 +48,23 @@ resource "azurerm_key_vault_secret" "database_url" {
   value        = module.postgres.database_url
 }
 
+module "ai" {
+  source = "../modules/ai"
+
+  name                = "ai-crux-${local.env}-${local.suffix}"
+  resource_group_name = local.rg
+  location            = var.ai_location
+  deployments         = var.ai_deployments
+  tags                = local.tags
+}
+
+# The account key, for the OpenAI-compatible API and Speech alike.
+resource "azurerm_key_vault_secret" "ai_services_key" {
+  name         = "ai-services-key"
+  key_vault_id = module.keyvault.id
+  value        = module.ai.primary_access_key
+}
+
 module "container_env" {
   source = "../modules/container_env"
 
