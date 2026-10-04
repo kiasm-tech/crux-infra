@@ -33,3 +33,11 @@ output "ai_default_model" {
 output "ai_deployments" {
   value = module.ai.deployments
 }
+
+output "star_catch_intake_url" {
+  value = local.star_catch ? "https://${module.star_catch_intake[0].fqdn}" : null
+}
+
+output "star_catch_jobs" {
+  value = local.star_catch ? { worker = module.star_catch_worker[0].name, migrate = module.star_catch_migrate[0].name } : null
+}

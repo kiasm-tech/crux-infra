@@ -11,6 +11,17 @@ variable "identity_id" { type = string }
 variable "key_vault_uri" { type = string }
 variable "tags" { type = map(string) }
 
+variable "container_name" {
+  type    = string
+  default = "web"
+}
+
+variable "args" {
+  description = "Arguments to the image's entrypoint; none = its default command."
+  type        = list(string)
+  default     = []
+}
+
 variable "image" {
   description = "Initial image only — later deploys come from the app's CI."
   type        = string
@@ -117,8 +128,9 @@ resource "azurerm_container_app" "this" {
     max_replicas = var.max_replicas
 
     container {
-      name   = "web"
+      name   = var.container_name
       image  = var.image
+      args   = length(var.args) > 0 ? var.args : null
       cpu    = var.cpu
       memory = var.memory
 

@@ -207,6 +207,60 @@ psql "$(az keyvault secret show --vault-name <kv> --name database-url --query va
 **Save money on dev:** `az postgres flexible-server stop -g rg-crux-dev -n <server>`.
 Azure restarts it automatically after 7 days.
 
+## Star Catch
+
+The backend from `kiasm-tech/star-catch` runs from one image, `ghcr.io/kiasm-tech/star-catch`,
+with one app per entrypoint. Each has its own identity, which can read only the Key Vault secrets
+listed here:
+
+| Resource | Entrypoint | Key Vault secrets |
+| --- | --- | --- |
+| `ca-star-catch-intake-<env>` (Container App, scale to zero) | `intake`: GitHub webhooks → queue | `database-url`, `github-webhook-secret`, `ghcr-token` |
+| `caj-star-catch-worker-<env>` (Container Apps Job) | `worker`: drains the `star-catch.*` queues, then exits | `database-url`, `github-app-private-key`, `ai-services-key`, `ghcr-token` |
+| `caj-star-catch-migrate-<env>` (Container Apps Job, started by hand) | `migrate`: applies star-catch's `db/migrations` | `database-url`, `ghcr-token` |
+
+A KEDA `postgresql` rule polls every 5 s and starts a worker execution while pg-boss has a
+`star-catch.*` job that is due. The worker also writes to Blob storage and calls `ai_default_model` (or
+`star_catch.classifier_model`, if set) to label changes.
+
+It stays off until `star_catch` is set in `envs/<env>.tfvars`. Before that apply:
+
+1. Merge star-catch's `main` so its CI pushes `ghcr.io/kiasm-tech/star-catch:main`.
+2. Set the secrets (the apply fails if one is missing):
+
+   ```sh
+   az keyvault secret set --vault-name <kv> --name github-webhook-secret --value "$(openssl rand -hex 32)"
+   az keyvault secret set --vault-name <kv> --name ghcr-token --value "<GitHub PAT with read:packages>"
+   az keyvault secret set --vault-name <kv> --name github-app-private-key --file <app>.private-key.pem
+   ```
+
+3. Uncomment `star_catch` in `envs/<env>.tfvars`, open a PR, merge.
+4. Create the `star_catch` schema: `az containerapp job start -n caj-star-catch-migrate-<env> -g rg-crux-<env>`.
+
+Terraform ignores the image after creation. Roll a new one into all three, then migrate:
+
+```sh
+IMAGE=ghcr.io/kiasm-tech/star-catch:<sha>
+az containerapp update -n ca-star-catch-intake-<env> -g rg-crux-<env> --image $IMAGE
+for job in worker migrate; do az containerapp job update -n caj-star-catch-$job-<env> -g rg-crux-<env> --image $IMAGE; done
+az containerapp job start -n caj-star-catch-migrate-<env> -g rg-crux-<env>
+```
+
+**Check it works** (dev, with `worker_env = { STAR_CATCH_MOCK_GITHUB = "true" }` and
+`repos = "pmndrs/zustand"`), from the star-catch repo:
+
+```sh
+INTAKE=$(terraform -chdir=../crux-infra/stack output -raw star_catch_intake_url)
+az containerapp job execution list -n caj-star-catch-migrate-dev -g rg-crux-dev -o table   # Succeeded
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $INTAKE/github/webhook -d '{}'              # 401
+GITHUB_WEBHOOK_SECRET=$(az keyvault secret show --vault-name <kv> --name github-webhook-secret --query value -o tsv) \
+  pnpm replay fixtures/webhooks/pmndrs__zustand__3469.opened.json --url $INTAKE/github/webhook  # 202
+az containerapp job execution list -n caj-star-catch-worker-dev -g rg-crux-dev -o table    # one within ~10 s
+```
+
+The worker's logs (Log Analytics, `ContainerAppConsoleLogs_CL`) show `"queue":"star-catch.ingest"`,
+and `star_catch.pr_snapshots` has a row.
+
 ## Cost (dev, idle)
 
 | Resource | ~€/month |
@@ -219,5 +273,6 @@ Azure restarts it automatically after 7 days.
 
 ## Not here yet
 
-- `worker_job` (Container Apps Job + KEDA postgresql scaler) arrives in Phase 4, once there's a pg-boss queue for it to watch.
+- Crux's own `worker_job` arrives in Phase 4 (Star Catch's worker above is the pattern).
+- Star Catch's `redeliver` job (kiasm-tech/star-catch#10) and deploys from star-catch's CI.
 - Custom domain + managed certificate arrive in Phase 5.
