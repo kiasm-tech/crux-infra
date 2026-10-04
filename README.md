@@ -15,7 +15,7 @@ Each environment contains:
 - Container Apps environment (Consumption, scale to zero) with a capped Log Analytics workspace (0.5 GB/day, 30 days)
 - The `ca-crux-web-<env>` Container App with a placeholder image
 - PostgreSQL Flexible Server B1ms with a `crux` database; its URL is stored in Key Vault as `database-url`
-- An AI Services account in Sweden Central with the OpenAI deployments listed in `ai_deployments` (`gpt-5-mini`, `gpt-5.3-codex`) and Speech; its key is stored in Key Vault as `ai-services-key`
+- An AI Services account in Sweden Central with the OpenAI deployments listed in `ai_deployments` (`gpt-6-luna`), all `DataZoneStandard` so data stays in the EU, and Speech. Crux and Star Catch use the one named by `ai_default_model`; its key is stored in Key Vault as `ai-services-key`
 - Blob storage with `audio` and `exports` containers, keyless, moving blobs to Cool after 30 days
 - Key Vault (RBAC)
 - A managed identity for the app
@@ -196,7 +196,7 @@ export AZURE_SPEECH_KEY=$OPENAI_API_KEY AZURE_SPEECH_REGION=$(terraform -chdir=s
 ```
 
 **Add a model:** add an entry to `ai_deployments` in `envs/<env>.tfvars` (the default map is
-replaced, so list every model you keep).
+replaced, so list every model you keep). `ai_default_model` picks the one the apps use.
 
 **Reach Postgres from your laptop:** add your IP to `postgres_allowed_ips` in the tfvars, then:
 

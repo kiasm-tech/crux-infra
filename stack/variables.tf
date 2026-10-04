@@ -16,14 +16,25 @@ variable "ai_location" {
 variable "ai_deployments" {
   description = "Deployment name (= the model apps ask for) => model."
   type = map(object({
-    model    = string
-    version  = optional(string)
-    sku      = optional(string, "GlobalStandard")
+    model   = string
+    version = optional(string)
+    # DataZoneStandard keeps prompts and answers inside the EU data zone (GDPR).
+    sku      = optional(string, "DataZoneStandard")
     capacity = optional(number, 50)
   }))
   default = {
-    "gpt-5-mini"    = { model = "gpt-5-mini" }    # Star Catch classifier
-    "gpt-5.3-codex" = { model = "gpt-5.3-codex" } # Crux generation
+    "gpt-6-luna" = { model = "gpt-6-luna" }
+  }
+}
+
+variable "ai_default_model" {
+  description = "The deployment Crux and Star Catch use (OPENAI_MODEL)."
+  type        = string
+  default     = "gpt-6-luna"
+
+  validation {
+    condition     = contains(keys(var.ai_deployments), var.ai_default_model)
+    error_message = "ai_default_model must be one of the ai_deployments."
   }
 }
 

@@ -26,6 +26,10 @@ output "ai_location" {
   value = module.ai.location
 }
 
+output "ai_default_model" {
+  value = var.ai_default_model
+}
+
 output "ai_deployments" {
   value = module.ai.deployments
 }
