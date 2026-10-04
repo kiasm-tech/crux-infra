@@ -66,3 +66,12 @@ variable "web" {
   })
   default = {}
 }
+
+variable "star_catch" {
+  description = "The Star Catch backend; null leaves it out. Set its Key Vault secrets before the first apply."
+  type = object({
+    image             = optional(string, "ghcr.io/kiasm-tech/star-catch:main")
+    registry_username = string
+  })
+  default = null
+}
