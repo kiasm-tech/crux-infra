@@ -35,3 +35,9 @@ variable "admin_group_object_id" {
   type        = string
   default     = "8bb1b7f9-1a8b-462b-8799-04f1efa369a6" # Founders
 }
+
+variable "github_oidc_subject_repo" {
+  description = "Repo as it appears in the GitHub OIDC `sub` claim (owner@id/name@id); copy it from an AADSTS700213 error if it changes."
+  type        = string
+  default     = "kiasm-tech@297363782/crux-infra@1390894403"
+}
