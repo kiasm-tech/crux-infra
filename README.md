@@ -20,6 +20,9 @@ Each environment contains:
 - Key Vault (RBAC)
 - A managed identity for the app
 
+The web app gets `DATABASE_URL`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `AZURE_SPEECH_KEY` and
+`AZURE_SPEECH_REGION` without any tfvars.
+
 ---
 
 ## First-time setup
@@ -158,14 +161,14 @@ terraform -chdir=stack plan -var-file=../envs/dev.tfvars
 **Add an app secret.** Values never go through Terraform:
 
 ```sh
-az keyvault secret set --vault-name <kv> --name openai-api-key --value "..."
+az keyvault secret set --vault-name <kv> --name resend-api-key --value "..."
 ```
 
 Then reference it in `envs/<env>.tfvars` and merge:
 
 ```hcl
 web = {
-  secrets = { OPENAI_API_KEY = "openai-api-key" }
+  secrets = { RESEND_API_KEY = "resend-api-key" }
 }
 ```
 

@@ -106,7 +106,7 @@ resource "time_sleep" "web_roles" {
 
 module "web" {
   source     = "../modules/web_app"
-  depends_on = [time_sleep.web_roles, azurerm_key_vault_secret.database_url]
+  depends_on = [time_sleep.web_roles, azurerm_key_vault_secret.database_url, azurerm_key_vault_secret.ai_services_key]
 
   name                         = "ca-crux-web-${local.env}"
   resource_group_name          = local.rg
@@ -125,7 +125,13 @@ module "web" {
   env = merge({
     AZURE_CLIENT_ID       = azurerm_user_assigned_identity.web.client_id
     AZURE_STORAGE_ACCOUNT = module.storage.name
+    OPENAI_BASE_URL       = module.ai.openai_base_url
+    AZURE_SPEECH_REGION   = module.ai.location
   }, var.web.env)
 
-  secrets = merge({ DATABASE_URL = azurerm_key_vault_secret.database_url.name }, var.web.secrets)
+  secrets = merge({
+    DATABASE_URL     = azurerm_key_vault_secret.database_url.name
+    OPENAI_API_KEY   = azurerm_key_vault_secret.ai_services_key.name
+    AZURE_SPEECH_KEY = azurerm_key_vault_secret.ai_services_key.name
+  }, var.web.secrets)
 }
