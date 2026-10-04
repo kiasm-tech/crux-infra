@@ -207,6 +207,31 @@ psql "$(az keyvault secret show --vault-name <kv> --name database-url --query va
 **Save money on dev:** `az postgres flexible-server stop -g rg-crux-dev -n <server>`.
 Azure restarts it automatically after 7 days.
 
+## Star Catch
+
+The backend from `kiasm-tech/star-catch` runs from one image, `ghcr.io/kiasm-tech/star-catch`,
+with one app per entrypoint. Each has its own identity, which can read only the Key Vault secrets
+listed here:
+
+| Resource | Entrypoint | Key Vault secrets |
+| --- | --- | --- |
+| `ca-star-catch-intake-<env>` (Container App, scale to zero) | `intake`: GitHub webhooks → queue | `database-url`, `github-webhook-secret`, `ghcr-token` |
+
+It stays off until `star_catch` is set in `envs/<env>.tfvars`. Before that apply:
+
+1. Merge star-catch's `main` so its CI pushes `ghcr.io/kiasm-tech/star-catch:main`.
+2. Set the secrets (the apply fails if one is missing):
+
+   ```sh
+   az keyvault secret set --vault-name <kv> --name github-webhook-secret --value "$(openssl rand -hex 32)"
+   az keyvault secret set --vault-name <kv> --name ghcr-token --value "<GitHub PAT with read:packages>"
+   ```
+
+3. Uncomment `star_catch` in `envs/<env>.tfvars`, open a PR, merge.
+
+Terraform ignores the image after creation; roll a new one with
+`az containerapp update -n ca-star-catch-intake-<env> -g rg-crux-<env> --image ghcr.io/kiasm-tech/star-catch:<sha>`.
+
 ## Cost (dev, idle)
 
 | Resource | ~€/month |
