@@ -6,8 +6,9 @@ locals {
   star_catch = var.star_catch != null
 
   # Key Vault secrets each identity may read, one role assignment per secret:
-  # the webhook secret stays with intake.
+  # the webhook secret stays with intake, the API token with the API.
   star_catch_access = local.star_catch ? {
+    api     = ["database-url", "star-catch-api-token", "ghcr-token"]
     intake  = ["database-url", "github-webhook-secret", "ghcr-token"]
     worker  = ["database-url", "github-app-private-key", "ai-services-key", "ghcr-token"]
     migrate = ["database-url", "ghcr-token"]
@@ -18,6 +19,8 @@ locals {
       for app, secrets in local.star_catch_access : [for secret in secrets : { app = app, secret = secret }]
     ]) : "${grant.app}/${grant.secret}" => grant
   }
+
+  star_catch_classifier_model = local.star_catch ? coalesce(var.star_catch.classifier_model, var.ai_default_model) : null
 
   star_catch_registry = local.star_catch ? {
     server          = "ghcr.io"
@@ -88,6 +91,37 @@ module "star_catch_intake" {
   }
 }
 
+# What Crux reads: catches by repo and the per-repo switch. Kept warm, since Crux waits on it.
+module "star_catch_api" {
+  source     = "../modules/web_app"
+  count      = local.star_catch ? 1 : 0
+  depends_on = [time_sleep.star_catch_roles]
+
+  name                         = "ca-star-catch-api-${local.env}"
+  resource_group_name          = local.rg
+  container_app_environment_id = module.container_env.id
+  identity_id                  = azurerm_user_assigned_identity.star_catch["api"].id
+  key_vault_uri                = module.keyvault.uri
+  tags                         = local.tags
+
+  container_name = "api"
+  image          = var.star_catch.image
+  args           = ["api"]
+  target_port    = 8080
+  cpu            = 0.25
+  memory         = "0.5Gi"
+  min_replicas   = 1
+  max_replicas   = 2
+  registry       = local.star_catch_registry
+
+  env = { STAR_CATCH_REPOS = var.star_catch.repos }
+
+  secrets = {
+    DATABASE_URL         = "database-url"
+    STAR_CATCH_API_TOKEN = "star-catch-api-token"
+  }
+}
+
 # One execution drains every star-catch.* queue, then exits. The rule counts jobs that are due:
 # a retry waiting out its backoff would otherwise start an execution on every poll.
 module "star_catch_worker" {
@@ -112,7 +146,8 @@ module "star_catch_worker" {
   env = merge({
     GITHUB_APP_ID               = var.star_catch.github_app_id
     STAR_CATCH_REPOS            = var.star_catch.repos
-    STAR_CATCH_CLASSIFIER_MODEL = coalesce(var.star_catch.classifier_model, var.ai_default_model)
+    STAR_CATCH_CLASSIFIER_MODEL = local.star_catch_classifier_model
+    STAR_CATCH_WRITER_MODEL     = coalesce(var.star_catch.writer_model, local.star_catch_classifier_model)
     OPENAI_BASE_URL             = module.ai.openai_base_url
   }, var.star_catch.worker_env)
 
