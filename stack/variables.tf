@@ -73,10 +73,12 @@ variable "star_catch" {
     image             = optional(string, "ghcr.io/kiasm-tech/star-catch:main")
     registry_username = string
     github_app_id     = string
-    # owner/name, comma-separated: the repos the worker snapshots.
+    # owner/name, comma-separated: always on, besides the repos switched on in Crux.
     repos = optional(string, "")
     # null = ai_default_model.
     classifier_model = optional(string)
+    # The narration writer; null = the classifier's model.
+    writer_model = optional(string)
     # e.g. { STAR_CATCH_MOCK_GITHUB = "true" } for a smoke test with recorded PRs.
     worker_env = optional(map(string), {})
   })
@@ -85,5 +87,10 @@ variable "star_catch" {
   validation {
     condition     = try(var.star_catch.classifier_model, null) == null || contains(keys(var.ai_deployments), try(var.star_catch.classifier_model, ""))
     error_message = "star_catch.classifier_model must be one of the ai_deployments."
+  }
+
+  validation {
+    condition     = try(var.star_catch.writer_model, null) == null || contains(keys(var.ai_deployments), try(var.star_catch.writer_model, ""))
+    error_message = "star_catch.writer_model must be one of the ai_deployments."
   }
 }

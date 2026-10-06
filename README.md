@@ -215,13 +215,16 @@ listed here:
 
 | Resource | Entrypoint | Key Vault secrets |
 | --- | --- | --- |
-| `ca-star-catch-intake-<env>` (Container App, scale to zero) | `intake`: GitHub webhooks → queue | `database-url`, `github-webhook-secret`, `ghcr-token` |
+| `ca-star-catch-api-<env>` (Container App, one replica kept warm) | `api`: what Crux reads (catches, per-repo switch), bearer token | `database-url`, `star-catch-api-token`, `ghcr-token` |
+| `ca-star-catch-intake-<env>` (Container App, scale to zero) | `intake`: GitHub webhooks (relayed by Crux) → queue | `database-url`, `github-webhook-secret`, `ghcr-token` |
 | `caj-star-catch-worker-<env>` (Container Apps Job) | `worker`: drains the `star-catch.*` queues, then exits | `database-url`, `github-app-private-key`, `ai-services-key`, `ghcr-token` |
 | `caj-star-catch-migrate-<env>` (Container Apps Job, started by hand) | `migrate`: applies star-catch's `db/migrations` | `database-url`, `ghcr-token` |
 
 A KEDA `postgresql` rule polls every 5 s and starts a worker execution while pg-boss has a
-`star-catch.*` job that is due. The worker also writes to Blob storage and calls `ai_default_model` (or
-`star_catch.classifier_model`, if set) to label changes.
+`star-catch.*` job that is due. The worker snapshots each PR on an enabled repo, then builds its catch:
+it calls `ai_default_model` (or `star_catch.classifier_model`) to label changes and
+`star_catch.writer_model` (default: the classifier's) to write the narration, about 2–4 calls a push.
+Repos are switched on in Crux (`star_catch.repo_settings`); `star_catch.repos` are always on.
 
 It stays off until `star_catch` is set in `envs/<env>.tfvars`. Before that apply:
 
@@ -229,7 +232,10 @@ It stays off until `star_catch` is set in `envs/<env>.tfvars`. Before that apply
 2. Set the secrets (the apply fails if one is missing):
 
    ```sh
-   az keyvault secret set --vault-name <kv> --name github-webhook-secret --value "$(openssl rand -hex 32)"
+   # Crux relays the App's webhooks, so this is Crux's GITHUB_WEBHOOK_SECRET.
+   az keyvault secret set --vault-name <kv> --name github-webhook-secret --value "<Crux's GITHUB_WEBHOOK_SECRET>"
+   # Crux sends it as STAR_CATCH_API_TOKEN: copy it into Crux's Secret Manager too.
+   az keyvault secret set --vault-name <kv> --name star-catch-api-token --value "$(openssl rand -hex 32)"
    az keyvault secret set --vault-name <kv> --name ghcr-token --value "<GitHub PAT with read:packages>"
    az keyvault secret set --vault-name <kv> --name github-app-private-key --file <app>.private-key.pem
    ```
@@ -237,11 +243,11 @@ It stays off until `star_catch` is set in `envs/<env>.tfvars`. Before that apply
 3. Uncomment `star_catch` in `envs/<env>.tfvars`, open a PR, merge.
 4. Create the `star_catch` schema: `az containerapp job start -n caj-star-catch-migrate-<env> -g rg-crux-<env>`.
 
-Terraform ignores the image after creation. Roll a new one into all three, then migrate:
+Terraform ignores the image after creation. Roll a new one into all four, then migrate:
 
 ```sh
 IMAGE=ghcr.io/kiasm-tech/star-catch:<sha>
-az containerapp update -n ca-star-catch-intake-<env> -g rg-crux-<env> --image $IMAGE
+for app in api intake; do az containerapp update -n ca-star-catch-$app-<env> -g rg-crux-<env> --image $IMAGE; done
 for job in worker migrate; do az containerapp job update -n caj-star-catch-$job-<env> -g rg-crux-<env> --image $IMAGE; done
 az containerapp job start -n caj-star-catch-migrate-<env> -g rg-crux-<env>
 ```
@@ -258,8 +264,18 @@ GITHUB_WEBHOOK_SECRET=$(az keyvault secret show --vault-name <kv> --name github-
 az containerapp job execution list -n caj-star-catch-worker-dev -g rg-crux-dev -o table    # one within ~10 s
 ```
 
-The worker's logs (Log Analytics, `ContainerAppConsoleLogs_CL`) show `"queue":"star-catch.ingest"`,
-and `star_catch.pr_snapshots` has a row.
+The worker's logs (Log Analytics, `ContainerAppConsoleLogs_CL`) show `"queue":"star-catch.ingest"`
+then `"queue":"star-catch.generate"`, and the API serves the catch:
+
+```sh
+API=$(terraform -chdir=../crux-infra/stack output -raw star_catch_api_url)
+TOKEN=$(az keyvault secret show --vault-name <kv> --name star-catch-api-token --query value -o tsv)
+curl -s -o /dev/null -w '%{http_code}\n' "$API/v1/catches?repos=pmndrs/zustand"                    # 401
+curl -s -H "authorization: Bearer $TOKEN" "$API/v1/catches?repos=pmndrs/zustand" | jq '.catches[].version.catchId'
+```
+
+Crux then needs `STAR_CATCH_API_URL`, `STAR_CATCH_API_TOKEN` and `STAR_CATCH_INTAKE_URL`
+(the outputs `star_catch_api_url` and `star_catch_intake_url`).
 
 ## Cost (dev, idle)
 
@@ -267,6 +283,7 @@ and `star_catch.pr_snapshots` has a row.
 | --- | --- |
 | Postgres B1ms + 32 GB | 16–18 |
 | Container App (scale to zero) | 0 |
+| Star Catch API (one warm 0.25 vCPU replica, when `star_catch` is on) | 5–10 |
 | Log Analytics (capped at 0.5 GB/day) | 0–5 |
 | Key Vault, Blob | < 1 |
 | AI Services (pay per token) | 0 |
