@@ -5,6 +5,5 @@ star_catch = {
   image             = "ghcr.io/kiasm-tech/star-catch:75684a82a9ecce9ce5c2b99ce94c0653387e56a5"
   registry_username = "bareshub"
   github_app_id     = "4305908"
-  repos             = "pmndrs/zustand"
-  worker_env        = { STAR_CATCH_MOCK_GITHUB = "true" } # recorded PRs until the App's webhook points at intake
+  repos             = "" # switched on per repo in Crux
 }
